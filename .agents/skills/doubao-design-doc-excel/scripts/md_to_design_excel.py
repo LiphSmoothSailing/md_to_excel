@@ -64,12 +64,58 @@ def disp_width(s):
                for ch in str(s or ''))
 
 
-def est_lines(text, c1, c2):
+def col_width(ws, c):
+    """取列实际宽度（显式列宽优先，否则默认列宽）"""
+    w = ws.column_dimensions[get_column_letter(c)].width
+    return float(w) if w else float(ws.sheet_format.defaultColWidth)
+
+
+def seg_width(ws, c1, c2):
+    """合并段实际总列宽（字符）"""
+    return sum(col_width(ws, c) for c in range(c1, c2 + 1))
+
+
+def est_lines(text, c1, c2, ws=None):
     text = str(text or '')
     if not text:
         return 1
-    avail = max(sum(12.63 for _ in range(c1, c2 + 1)) / 2 - 2, 8)
+    wsum = seg_width(ws, c1, c2) if ws is not None else 12.63 * (c2 - c1 + 1)
+    avail = max(wsum / 2 - 2, 8)
     return sum(max(1, math.ceil(disp_width(ln) / avail)) for ln in text.split('\n'))
+
+
+def dynamic_segments(ws, n, headers, rows):
+    """按各列内容显示宽度占比，把 B..BC（列 2..55）动态分成 n 段。
+
+    - 每段至少 1 列；合并边界取整列，不改任何列宽
+    - 需求 = 该列表头+数据中最大显示宽度 + 2 字符余量
+    - 1 列表格不使用本函数（整段 B:BC）
+    """
+    needs = []
+    for j in range(n):
+        vals = [headers[j]] + [r[j] for r in rows if j < len(r)]
+        needs.append(max(disp_width(str(v or '')) for v in vals) + 2)
+    total_w = seg_width(ws, 2, 55)
+    total_need = sum(needs)
+    widths = [col_width(ws, c) for c in range(2, 56)]
+    target = [total_w * (nd / total_need) for nd in needs]
+
+    segs = []
+    idx = 0  # 已消耗列数（对应列 2+idx）
+    for k, t in enumerate(target):
+        if k == n - 1:
+            segs.append((2 + idx, 55))  # 最后一段收尾到 BC
+            break
+        acc = 0.0
+        start = 2 + idx
+        acc += widths[idx]
+        idx += 1
+        # 预留后续每段至少 1 列
+        while idx < len(widths) - (n - k - 1) and acc < t:
+            acc += widths[idx]
+            idx += 1
+        segs.append((start, 2 + idx - 1))
+    return segs
 
 
 def col_align(values):
@@ -266,13 +312,13 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
                        Font(name=FONT_JA, size=10, color='FF000000'),
                        Alignment(horizontal='left', vertical='center', wrap_text=True),
                        bordered=False)
-            ws.row_dimensions[row].height = max(18, est_lines(block[1], *FULL) * 14 + 8)
+            ws.row_dimensions[row].height = max(18, est_lines(block[1], *FULL, ws) * 14 + 8)
         elif kind == 'code':
             set_merged(row, FULL[0], FULL[1], block[1], code_fill,
                        Font(name=FONT_MONO, size=10, color='FF333333'),
                        Alignment(horizontal='left', vertical='center', wrap_text=True),
                        bordered=False)
-            ws.row_dimensions[row].height = est_lines(block[1], *FULL) * 13 + 8
+            ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * 13 + 8
         elif kind == 'mermaid':
             png = os.path.join(img_dir, f'mermaid_{row}.png')
             if _render_mermaid(block[1], png):
@@ -289,11 +335,11 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
                            Font(name=FONT_MONO, size=10, color='FF333333'),
                            Alignment(horizontal='left', vertical='center', wrap_text=True),
                            bordered=False)
-                ws.row_dimensions[row].height = est_lines(block[1], *FULL) * 13 + 8
+                ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * 13 + 8
         elif kind == 'table':
             headers, rows = normalize_table(block[1], block[2])
             n = len(headers)
-            segs = SEG1 if n == 1 else SEG2 if n == 2 else SEG3
+            segs = SEG1 if n == 1 else dynamic_segments(ws, n, headers, rows)
             for j, h in enumerate(headers):
                 c1, c2 = segs[j]
                 set_merged(row, c1, c2, h, header_fill,
@@ -311,7 +357,8 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
                                          vertical='center', wrap_text=True),
                                bordered=True)
                     ws.row_dimensions[row].height = max(
-                        ws.row_dimensions[row].height or 0, est_lines(v, c1, c2) * 14 + 6)
+                        ws.row_dimensions[row].height or 0,
+                        est_lines(v, c1, c2, ws) * 14 + 6)
                 row += 1
         row += 1  # 块间空行
 
