@@ -1,0 +1,7 @@
+# 转换产物与临时文件不入库
+output/
+temp/
+
+# 工具配置 / 缓存
+.claude/
+.preview/
