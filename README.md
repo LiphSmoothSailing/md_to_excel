@@ -1,11 +1,12 @@
-# Markdown → Excel 转换工具 · 安装说明
+# Markdown → 設計書 Excel 转换工具
 
 > 版权所有 © 李鹏虎 (Li Penghu)　保留所有权利
 > 仅供个人学习与非商业用途；商业使用须经作者书面同意。
 > 作者邮箱：gs_lipenghu@qq.com
 
-本工具把结构化 Markdown 转换为格式化的 Excel（`.xlsx`），支持标题层级缩进、
-表格、列表、任务清单、代码块、图片，以及 **Mermaid 流程图渲染成图片嵌入**。
+将 Markdown 设计书（API 設計書 / 要件定義書 / 詳細設計書 / 详细设计书）转换为
+遵循 `design_template.xlsx` 版式的 Excel 文件。版式基准由用户微调确认，
+**所有设计书转换一律使用本模板，不得改用其他模板或另起版式**。
 
 ---
 
@@ -13,15 +14,20 @@
 
 ```
 md_to_excel/
-├── md_to_excel.py     # 主程序
-├── sample.png         # 内置示例引用的配图
-├── requirements.txt   # Python 依赖清单
-└── 安装说明.md         # 本文件
+├── design_template.xlsx              # 设计书 Excel 模板基准（核心，勿改）
+├── .agents/skills/
+│   └── doubao-design-doc-excel/      # 转换 Skill（SKILL.md + 转换脚本 + 模板副本）
+│       ├── SKILL.md                  # 版式铁律与工作流说明
+│       ├── scripts/md_to_design_excel.py   # 转换脚本（MD 解析 / blocks 渲染）
+│       └── assets/design_template.xlsx     # 模板副本（脚本默认使用）
+├── requirements.txt                  # Python 依赖清单
+├── LICENSE                           # 许可协议
+└── README.md                         # 本文件
 ```
 
 ---
 
-## 一、环境要求
+## 环境要求
 
 | 组件 | 版本要求 | 用途 | 是否必需 |
 | --- | --- | --- | --- |
@@ -38,7 +44,7 @@ npm --version
 
 ---
 
-## 二、安装 Python 依赖（pip）
+## 安装 Python 依赖（pip）
 
 在 `md_to_excel` 文件夹下执行：
 
@@ -60,7 +66,7 @@ pip install Pillow        # 嵌入图片 / Mermaid 图（嵌图必需）
 
 ---
 
-## 三、安装 Mermaid 渲染工具（npm）
+## 安装 Mermaid 渲染工具（npm）
 
 Mermaid 是文本描述语言，Excel 无法直接显示，需先用官方命令行工具
 `mermaid-cli` 把图渲染成 PNG，再嵌入 Excel。它依赖 Node.js，请按下面两步顺序安装。
@@ -104,72 +110,119 @@ mmdc --version
 
 ---
 
-## 四、使用方法
+## 模板版式铁律（转换时不可违反）
+
+1. **保留模板前 6 行头部**：标题、サービス名/案件名/作成日/作成者/更新日/更新者信息区、
+   プロジェクト種別/ID/予定工数/リリース予定日及复选框区——值、样式、合并、行高原样保留；
+   模板自带 `=#REF!` 断链公式清空值但保留样式；模板首 sheet 原为 hidden，必须改为 visible。
+2. **列宽与模板完全一致，绝不改列宽**：默认列宽 12.63；显式列宽仅
+   `A=3.25`、`AG=4.5`、`AH=3.25`。转换后不得写入任何新列宽。
+3. **长内容一律用合并单元格承载**：内容从第 7 行起，按模板列段合并，禁止拉宽列或拆列。
+4. **配色/字体沿用模板体系**：章节标题深灰 `FF666666` 底白字 Meiryo 11 粗体；
+   子节 `FFD9D9D9` 底黑字 Meiryo 10 粗体；表头深灰底白字 Meiryo 10 粗体 + thin 黑边框；
+   数据白底 Meiryo 9 + thin 黑边框；代码 `FFF2F2F2` 底 Consolas 10；正文 Meiryo 10 无填充。
+5. **输出单 sheet**：只保留一个设计书 sheet，且可见。
+
+内容区列段（B..BC，1-based）：
+
+| 表格列数 | 列段合并 |
+| ------- | ------- |
+| 3 列 | `B:E` ｜ `F:AC` ｜ `AD:BC`（约 50 / 303 / 328） |
+| 2 列 | `B:H` ｜ `I:BC`（约 88 / 593） |
+| 1 列 / 章节 / 正文 / 代码 | `B:BC`（约 682） |
+
+表格超过 3 列时，脚本自动把第 4 列起并入第 3 列（表头/内容用 ` / ` 连接），不丢内容。
+
+---
+
+## 使用方法
+
+### 方式一：直接转换 Markdown（保留原文语言）
 
 ```powershell
-# 1) 转换指定文件（输出同名 .xlsx）
-python md_to_excel.py 输入.md
-
-# 2) 转换并指定输出文件名
-python md_to_excel.py 输入.md 输出.xlsx
-
-# 3) 不带参数：生成内置示例 demo.md -> demo.xlsx（含表格、任务清单、代码块、Mermaid 流程图）
-python md_to_excel.py
+python .agents\skills\doubao-design-doc-excel\scripts\md_to_design_excel.py --input <源.md>
 ```
 
-运行时会先显示版权信息，再输出转换结果。
+- 缺省输出到与源文件同目录同名 `.xlsx`
+- 文档标题（A1）取 MD 首个 `#` 标题
 
----
+指定输出路径与标题：
 
-## 五、Mermaid 使用示例
-
-在 Markdown 中写：
-
-````markdown
-```mermaid
-flowchart TD
-    A[开始] --> B{是否已登录?}
-    B -->|是| C[进入主页]
-    B -->|否| D[跳转登录页]
-    C --> F[结束]
+```powershell
+python .agents\skills\doubao-design-doc-excel\scripts\md_to_design_excel.py `
+  --input <源.md> --output <目标.xlsx> --title "<A1标题>"
 ```
-````
 
-转换后，该流程图会以 **图片** 形式嵌入 Excel 对应位置。
+### 方式二：渲染 blocks JSON（适合先翻译/整理内容）
+
+当需要把 MD 翻译成日文后再转换（专业术语、PHP 代码、URL、文件路径、页面文案原样保留），
+先把内容整理为 blocks JSON，再渲染：
+
+```powershell
+python .agents\skills\doubao-design-doc-excel\scripts\md_to_design_excel.py `
+  --blocks <blocks.json> --output <目标.xlsx> --sheet-name "<sheet名>"
+```
+
+blocks JSON 结构（列表，元素按序渲染）：
+
+```json
+[
+  ["chapter", "1. ドキュメント概要"],
+  ["table", ["項目", "内容"], [["機能", "キャンセル"], ["対象ページ", "cancel.php"]]],
+  ["note", "正文段落，可含 \\n 多行"],
+  ["code", "代码 / JSON 示例"]
+]
+```
+
+- `chapter`：章节标题（深灰底白字）
+- `section`：子节标题（浅灰底）
+- `table`：表格（1~3 列；`["列1","列2",...], [[值...], ...]`）
+- `note`：正文段落
+- `code`：代码 / JSON 示例（浅灰底 Consolas）
+
+### 参数一览
+
+| 参数 | 说明 |
+| ---- | ---- |
+| `--input` | 输入 Markdown 路径（与 `--blocks` 二选一） |
+| `--blocks` | blocks JSON 路径（与 `--input` 二选一） |
+| `--output` | 输出 xlsx 路径（缺省：与输入同目录同名） |
+| `--template` | 模板路径（缺省：Skill 内 `assets/design_template.xlsx`） |
+| `--title` | A1 文档标题（缺省：MD 模式取首个 `#` 标题，blocks 模式保留模板标题） |
+| `--sheet-name` | sheet 名（缺省：取 A1 标题截断 31 字符） |
 
 ---
 
-## 六、常见问题
+## 环境要求
 
-**Q1：提示「未找到 mmdc」或 Mermaid 变成了代码块文字？**
-说明 `mermaid-cli` 未装好或不在 PATH。请重新执行第三节的 `npm install -g @mermaid-js/mermaid-cli`，
-然后**新开一个终端**再运行（安装后需重启终端才能识别 `mmdc` 命令）。
+| 组件 | 版本 | 用途 | 必需 |
+| ---- | ---- | ---- | ---- |
+| Python | 3.8+ | 运行转换脚本 | 必需 |
+| openpyxl | 3.x | 读写 `.xlsx` | 必需 |
 
-**Q2：图片 / Mermaid 图变成灰色文字占位符？**
-多半是没装 `Pillow`。执行 `pip install Pillow` 后重试。
+安装依赖：
 
-**Q3：`npm install` 卡在下载 Chromium？**
-这是 mermaid-cli 首次安装的正常现象（需下载浏览器内核）。请保持网络畅通、耐心等待；
-如网络受限，可为 npm 配置代理或使用国内镜像源后重试。
+```powershell
+pip install -r requirements.txt
+```
 
-**Q3.1：安装报 `npm error code 13` / `EPERM: operation not permitted`？**
-这是权限不足（全局目录在受保护路径，如 `C:\Program Files\...`）。二选一解决：
+`requirements.txt` 内容：
 
-- 方式 A：右键 PowerShell →「以管理员身份运行」，再执行
-  `npm install -g @mermaid-js/mermaid-cli`
-- 方式 B（免管理员）：把 npm 全局目录改到用户可写位置后重装
-  ```powershell
-  npm config set prefix "$env:APPDATA\npm"
-  npm install -g @mermaid-js/mermaid-cli
-  ```
-
-装完都请 **新开终端** 再执行 `mmdc --version` 验证。若之前留下残缺目录，
-可先删除 `<npm 全局目录>\node_modules\@mermaid-js` 再重装。
-
-**Q4：Node.js 没装怎么办？**
-到 https://nodejs.org 下载并安装 LTS 版本，安装时勾选「加入 PATH」，装完重启终端。
+```
+openpyxl>=3.1
+```
 
 ---
+
+## 验证与交付
+
+转换完成后建议按以下要点核验（可用 openpyxl 回读）：
+
+- 单 sheet 且可见；sheet 名正确
+- 列宽：`A=3.25 / AG=4.5 / AH=3.25`、默认 12.63，无其他显式列宽
+- 前 6 行合并区与模板逐一相等；值仅允许 A1 标题与 `#REF!` 清理两处差异
+- 内容从第 7 行起完整；合并区无重叠
+- 行高按内容估算，长代码块（JSON 示例）不截断
 
 ## 版权声明
 
