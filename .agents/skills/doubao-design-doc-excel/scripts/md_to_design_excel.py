@@ -15,7 +15,7 @@ blocks JSON 结构（列表）：
 
 模板版式铁律（不可违反）：
   - 保留模板前 6 行（值/样式/合并/行高）
-  - 列宽与模板完全一致（A=3.25、AF=4.5、AG=3.25，其余默认 12.63），绝不改列宽
+  - 列宽与模板完全一致（A=3.25、AF=4.5、AG=3.25，其余默认 0.8cm≈4.3 字符），绝不改列宽
   - 长内容一律用合并单元格承载
 
 目录约定（项目内）：
@@ -57,6 +57,7 @@ SEG1 = [(2, 55)]                     # B:BC
 FULL = (2, 55)
 
 DEFAULT_SHEET = '設計書'
+DEFAULT_W = 4.32  # 模板默认列宽（0.8cm ≈ 4.3 字符）
 
 
 def disp_width(s):
@@ -79,7 +80,7 @@ def est_lines(text, c1, c2, ws=None):
     text = str(text or '')
     if not text:
         return 1
-    wsum = seg_width(ws, c1, c2) if ws is not None else 12.63 * (c2 - c1 + 1)
+    wsum = seg_width(ws, c1, c2) if ws is not None else DEFAULT_W * (c2 - c1 + 1)
     avail = max(wsum / 2 - 2, 8)
     return sum(max(1, math.ceil(disp_width(ln) / avail)) for ln in text.split('\n'))
 
