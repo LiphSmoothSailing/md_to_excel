@@ -14,24 +14,33 @@
 
 ```
 md_to_excel/
-├── design_template.xlsx              # 设计书 Excel 模板基准（核心，勿改）
+├── temp/                             # 转换过程的临时文件 / 验证脚本（可随时清理）
+├── output/                           # 转换产物默认输出目录
 ├── .agents/skills/
-│   └── doubao-design-doc-excel/      # 转换 Skill（SKILL.md + 转换脚本 + 模板副本）
+│   └── doubao-design-doc-excel/      # 转换 Skill（SKILL.md + 转换脚本 + 模板）
 │       ├── SKILL.md                  # 版式铁律与工作流说明
 │       ├── scripts/md_to_design_excel.py   # 转换脚本（MD 解析 / blocks 渲染）
-│       └── assets/design_template.xlsx     # 模板副本（脚本默认使用）
+│       └── assets/design_template.xlsx     # 设计书 Excel 模板基准（唯一权威，勿改）
 ├── requirements.txt                  # Python 依赖清单
 ├── LICENSE                           # 许可协议
 └── README.md                         # 本文件
 ```
 
+目录约定（脚本内置默认，可用参数覆盖）：
+
+| 用途          | 位置                                    | 覆盖参数         |
+| ----------- | ------------------------------------- | ------------ |
+| 模板文件（唯一权威）  | Skill 内 `assets/design_template.xlsx` | `--template` |
+| 临时文件 / 验证脚本 | `./temp/`                             | —            |
+| 转换产物        | `./output/<源文件名>.xlsx`                | `--output`   |
+
 ---
 
 ## 环境要求
 
-| 组件 | 版本要求 | 用途 | 是否必需 |
-| --- | --- | --- | --- |
-| Python | 3.8 及以上 | 运行主程序 | 必需 |
+| 组件      | 版本要求           | 用途            | 是否必需           |
+| ------- | -------------- | ------------- | -------------- |
+| Python  | 3.8 及以上        | 运行主程序         | 必需             |
 | Node.js | 18 及以上（建议 LTS） | 渲染 Mermaid 图表 | 仅用 Mermaid 时需要 |
 
 检查是否已安装：
@@ -59,10 +68,10 @@ pip install openpyxl      # 生成 Excel（必需）
 pip install Pillow        # 嵌入图片 / Mermaid 图（嵌图必需）
 ```
 
-| 包名 | 作用 | 不装的后果 |
-| --- | --- | --- |
-| `openpyxl` | 生成 `.xlsx` | 程序无法运行 |
-| `Pillow` | 让 openpyxl 能嵌入图片 | 图片与 Mermaid 图会退化为文字占位符 |
+| 包名         | 作用               | 不装的后果                  |
+| ---------- | ---------------- | ---------------------- |
+| `openpyxl` | 生成 `.xlsx`       | 程序无法运行                 |
+| `Pillow`   | 让 openpyxl 能嵌入图片 | 图片与 Mermaid 图会退化为文字占位符 |
 
 ---
 
@@ -125,11 +134,11 @@ mmdc --version
 
 内容区列段（B..BC，1-based）：
 
-| 表格列数 | 列段合并 |
-| ------- | ------- |
-| 3 列 | `B:E` ｜ `F:AC` ｜ `AD:BC`（约 50 / 303 / 328） |
-| 2 列 | `B:H` ｜ `I:BC`（约 88 / 593） |
-| 1 列 / 章节 / 正文 / 代码 | `B:BC`（约 682） |
+| 表格列数               | 列段合并                                       |
+| ------------------ | ------------------------------------------ |
+| 3 列                | `B:E` ｜ `F:AC` ｜ `AD:BC`（约 50 / 303 / 328） |
+| 2 列                | `B:H` ｜ `I:BC`（约 88 / 593）                 |
+| 1 列 / 章节 / 正文 / 代码 | `B:BC`（约 682）                              |
 
 表格超过 3 列时，脚本自动把第 4 列起并入第 3 列（表头/内容用 ` / ` 连接），不丢内容。
 
@@ -137,13 +146,30 @@ mmdc --version
 
 ## 使用方法
 
+### 推荐：大模型 Agent 直接调用 Skill
+
+在豆包等大模型 Agent 中，把任务一句话说给 Agent 即可——Agent 会自动读取
+`.agents/skills/doubao-design-doc-excel/` 技能，并按其中的版式铁律执行转换：
+
+> 请按照 .agents/skills/doubao-design-doc-excel/ 技能将 XXXXX.md 转换成 excel
+
+把 `XXXXX.md` 换成实际文件路径（可带完整路径或相对路径）。Agent 按 Skill 自动完成：
+
+- 加载模板（Skill 内 `assets/design_template.xlsx`，唯一权威）
+- 保留模板前 6 行头部、列宽与模板完全一致、长内容用合并单元格承载
+- 渲染表格 / 代码块 / 段落，```mermaid 流程图渲染为图片嵌入
+- 产物默认输出到 `./output/XXXXX.xlsx`（不手动指定时）
+
+该方式适用于任何"MD 转设计书 Excel"任务（API 設計書 / 要件定義書 / 詳細設計書 等），
+无需记住脚本参数。
+
 ### 方式一：直接转换 Markdown（保留原文语言）
 
 ```powershell
 python .agents\skills\doubao-design-doc-excel\scripts\md_to_design_excel.py --input <源.md>
 ```
 
-- 缺省输出到与源文件同目录同名 `.xlsx`
+- 缺省输出到 `./output/<源文件名>.xlsx`（目录自动创建）
 - 文档标题（A1）取 MD 首个 `#` 标题
 
 指定输出路径与标题：
@@ -182,23 +208,23 @@ blocks JSON 结构（列表，元素按序渲染）：
 
 ### 参数一览
 
-| 参数 | 说明 |
-| ---- | ---- |
-| `--input` | 输入 Markdown 路径（与 `--blocks` 二选一） |
-| `--blocks` | blocks JSON 路径（与 `--input` 二选一） |
-| `--output` | 输出 xlsx 路径（缺省：与输入同目录同名） |
-| `--template` | 模板路径（缺省：Skill 内 `assets/design_template.xlsx`） |
-| `--title` | A1 文档标题（缺省：MD 模式取首个 `#` 标题，blocks 模式保留模板标题） |
-| `--sheet-name` | sheet 名（缺省：取 A1 标题截断 31 字符） |
+| 参数             | 说明                                             |
+| -------------- | ---------------------------------------------- |
+| `--input`      | 输入 Markdown 路径（与 `--blocks` 二选一）               |
+| `--blocks`     | blocks JSON 路径（与 `--input` 二选一）                |
+| `--output`     | 输出 xlsx 路径（缺省：`./output/<源文件名>.xlsx`）          |
+| `--template`   | 模板路径（缺省：Skill 内 `assets/design_template.xlsx`） |
+| `--title`      | A1 文档标题（缺省：MD 模式取首个 `#` 标题，blocks 模式保留模板标题）    |
+| `--sheet-name` | sheet 名（缺省：取 A1 标题截断 31 字符）                    |
 
 ---
 
 ## 环境要求
 
-| 组件 | 版本 | 用途 | 必需 |
-| ---- | ---- | ---- | ---- |
-| Python | 3.8+ | 运行转换脚本 | 必需 |
-| openpyxl | 3.x | 读写 `.xlsx` | 必需 |
+| 组件       | 版本   | 用途         | 必需  |
+| -------- | ---- | ---------- | --- |
+| Python   | 3.8+ | 运行转换脚本     | 必需  |
+| openpyxl | 3.x  | 读写 `.xlsx` | 必需  |
 
 安装依赖：
 

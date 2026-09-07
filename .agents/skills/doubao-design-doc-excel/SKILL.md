@@ -5,7 +5,15 @@ description: 把 Markdown 设计书（API 設計書 / 要件定義書 / 詳細�
 
 # MD → 設計書 Excel（design_template 版式）
 
-将 Markdown 设计书渲染为 Excel，版式严格以 `assets/design_template.xlsx` 为基准。该模板由用户微调确认，**任何后续设计书转换都使用它，不得改用其他模板或新建版式**。
+将 Markdown 设计书渲染为 Excel，版式严格以模板基准 `design_template.xlsx` 为准。该模板由用户微调确认，**任何后续设计书转换都使用它，不得改用其他模板或新建版式**。
+
+## 目录约定（项目内，脚本内置默认）
+
+| 用途 | 位置 | 覆盖参数 |
+| ---- | ---- | ---- |
+| 模板文件（唯一权威，只留这一份） | Skill 内 `assets/design_template.xlsx`（`--template` 可显式覆盖） | `--template` |
+| 转换过程临时文件 / 验证脚本 | `./temp/` | — |
+| 转换产物 | `./output/<源文件名>.xlsx`（自动创建目录） | `--output` |
 
 ## 模板版式铁律（用户强约束，不可违反）
 
@@ -34,7 +42,7 @@ python <skill>/scripts/md_to_design_excel.py --input <源.md> [--output <目标.
 python <skill>/scripts/md_to_design_excel.py --blocks <blocks.json> --output <目标.xlsx> [--title ...] [--sheet-name ...]
 ```
 
-   - `--output` 缺省时输出到与输入同目录同名 `.xlsx`；`--title` 缺省时 MD 模式取首个 `#` 标题、blocks 模式保留模板 A1 标题；`--sheet-name` 缺省时取 A1 标题截断 31 字符。
+   - `--output` 缺省时输出到 `./output/<源文件名>.xlsx`（CWD 下自动创建）；`--title` 缺省时 MD 模式取首个 `#` 标题、blocks 模式保留模板 A1 标题；`--sheet-name` 缺省时取 A1 标题截断 31 字符。转换产生的临时文件（mermaid 图片等）放 `./temp/` 下并在保存后清理。
 4. **验证**（交付前必做，openpyxl 回读）：
    - 单 sheet 且 `sheet_state == 'visible'`；sheet 名正确。
    - 列宽：`A=3.25 / AG=4.5 / AH=3.25`、`defaultColWidth=12.63`，无其他显式列宽。
@@ -47,5 +55,5 @@ python <skill>/scripts/md_to_design_excel.py --blocks <blocks.json> --output <�
 
 ## 资源
 
-- `assets/design_template.xlsx` — 版式基准模板（用户微调确认版），脚本默认模板路径，勿修改。
+- `assets/design_template.xlsx` — 版式基准模板（用户微调确认版），**模板唯一权威**，脚本默认从本 Skill assets 加载；勿修改、勿另存副本。
 - `scripts/md_to_design_excel.py` — 转换脚本（解析 MD / 渲染 blocks JSON），已用真实设计书 MD 与日文 blocks 双路径测试通过。

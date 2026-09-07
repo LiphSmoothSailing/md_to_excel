@@ -9,13 +9,19 @@ blocks JSON 结构（列表）：
   ["chapter", "标题文本"]                      章节标题（深灰底白字）
   ["section", "标题文本"]                      子节标题（浅灰底）
   ["table", ["列1","列2"], [["a","b"], ...]]   表格（1~3 列；>3 列自动并入第 3 列）
-  ["note", "文本"]                             正文段落（可含 \n 多行）
+  ["note", "文本"]                             正文段落（可含 \\n 多行）
   ["code", "文本"]                             代码/JSON 示例（浅灰底 Consolas）
+  ["mermaid", "mermaid代码"]                   流程图（渲染 PNG 嵌入；失败降级为代码文本）
 
 模板版式铁律（不可违反）：
   - 保留模板前 6 行（值/样式/合并/行高）
-  - 列宽与模板完全一致（A=3.25、AG=4.5、AH=3.25，其余默认 12.63），绝不改列宽
+  - 列宽与模板完全一致（A=3.25、AF=4.5、AG=3.25，其余默认 12.63），绝不改列宽
   - 长内容一律用合并单元格承载
+
+目录约定（项目内）：
+  - 模板：Skill 内 assets/design_template.xlsx（唯一权威，只留这一份）
+  - 临时文件：./temp/（转换中产生的 mermaid 图片等）
+  - 输出：--output 未指定时默认 ./output/<源文件名>.xlsx
 """
 import argparse
 import json
@@ -36,6 +42,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 MMDC = shutil.which('mmdc')
+
+# 模板唯一位置：本 Skill 的 assets/design_template.xlsx（<skill>/assets/）
+ASSET_TPL = Path(__file__).resolve().parent.parent / 'assets' / 'design_template.xlsx'
 
 FONT_JA = 'Meiryo'
 FONT_MONO = 'Consolas'
@@ -224,7 +233,7 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
     header_fill = PatternFill('solid', fgColor='FF666666')
     section_fill = PatternFill('solid', fgColor='FFD9D9D9')
     code_fill = PatternFill('solid', fgColor='FFF2F2F2')
-    img_dir = tempfile.mkdtemp(prefix='design_mermaid_')
+    img_dir = tempfile.mkdtemp(prefix='mermaid_', dir=str(default_temp_dir()))
 
     def set_merged(r, c1, c2, value, fill, font, align, bordered):
         for c in range(c1, c2 + 1):
@@ -317,6 +326,25 @@ def _make_sheet_name(title):
     return (name or DEFAULT_SHEET)[:31]
 
 
+def find_template(cli_tpl):
+    """模板查找顺序：--template 显式 > 本 Skill assets/design_template.xlsx（唯一权威）"""
+    if cli_tpl:
+        return Path(cli_tpl)
+    return ASSET_TPL
+
+
+def default_out_dir():
+    d = Path.cwd() / 'output'
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def default_temp_dir():
+    d = Path.cwd() / 'temp'
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def load_blocks_json(path):
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     out = []
@@ -333,29 +361,27 @@ def main():
     ap = argparse.ArgumentParser(description='MD → 設計書 Excel（design_template 版式）')
     ap.add_argument('--input', help='输入 Markdown 文件路径')
     ap.add_argument('--blocks', help='blocks JSON 文件路径（与 --input 二选一）')
-    ap.add_argument('--output', help='输出 xlsx 路径（默认：与输入同目录同名 .xlsx）')
-    ap.add_argument('--template', help='模板 xlsx 路径（默认：本 skill assets/design_template.xlsx）')
+    ap.add_argument('--output', help='输出 xlsx 路径（默认：./output/<源文件名>.xlsx）')
+    ap.add_argument('--template', help='模板 xlsx 路径（默认：本 Skill assets/design_template.xlsx）')
     ap.add_argument('--sheet-name', help='sheet 名（默认取文档标题）')
     ap.add_argument('--title', help='A1 文档标题（默认：MD 模式取首个 # 标题，blocks 模式保留模板标题）')
     args = ap.parse_args()
 
     if not args.input and not args.blocks:
         ap.error('必须提供 --input 或 --blocks')
-    if args.template:
-        tpl = Path(args.template)
-    else:
-        tpl = Path(__file__).resolve().parent.parent / 'assets' / 'design_template.xlsx'
+    tpl = find_template(args.template)
     if not tpl.exists():
         sys.exit(f'模板不存在: {tpl}')
 
+    out_dir = default_out_dir()
     if args.blocks:
         blocks = load_blocks_json(args.blocks)
-        out = Path(args.output) if args.output else Path(args.blocks).with_suffix('.xlsx')
+        out = Path(args.output) if args.output else out_dir / f'{Path(args.blocks).stem}.xlsx'
         doc_title = args.title  # None 则保留模板 A1 标题
     else:
         src = Path(args.input)
         md_title, blocks = parse_md(src.read_text(encoding='utf-8'))
-        out = Path(args.output) if args.output else src.with_suffix('.xlsx')
+        out = Path(args.output) if args.output else out_dir / f'{src.stem}.xlsx'
         doc_title = args.title or md_title
         if doc_title is None and blocks and blocks[0][0] == 'chapter':
             doc_title = blocks[0][1]
