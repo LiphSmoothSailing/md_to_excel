@@ -1,0 +1,4 @@
+請將 C:\Goonet\Code\goo-net\docs\Batch対応の画面名と本番のURL_ja_v2.md 按照 md-to-excel-plain 技能轉換成 excel.
+
+請將 C:\Goonet\Code\goo-net\docs\zaiko_pgsql_mysql_詳細設計書_20261027_ja.md 按照 doubao-design-doc-excel 技能轉換成 excel.
+
