@@ -29,6 +29,7 @@ description: 把 Markdown 设计书（API 設計書 / 要件定義書 / 詳細�
 - 2/3 列表格：**动态分配**——脚本统计各列「表头+数据」最大显示宽度，按占比把 B..BC 切成 N 段（每段至少 1 列、边界取整列、不改任何列宽），内容多的列宽、内容少的列窄
 - 1 列表格 / 章节 / 子节 / 正文 / 代码：`B:BC`（约 682）
 - 表格 >3 列：脚本自动把第 4 列起并入第 3 列（表头/内容用 ` / ` 连接），不丢内容
+- 表格单元格：`<br>`（大小写不敏感，可写 `<br/>`）转为单元格内换行；`\|` 还原为 `|`。md 与 blocks 两种输入规则一致
 
 ## 工作流
 
@@ -42,17 +43,23 @@ python <skill>/scripts/md_to_design_excel.py --blocks <blocks.json> --output <�
 ```
 
    - `--output` 缺省时输出到 `./output/<源文件名>.xlsx`（CWD 下自动创建）；`--title` 缺省时 MD 模式取首个 `#` 标题、blocks 模式保留模板 A1 标题；`--sheet-name` 缺省时取 A1 标题截断 31 字符。转换产生的临时文件（mermaid 图片等）放 `./temp/` 下并在保存后清理。
-4. **验证**（交付前必做，openpyxl 回读）：
-   - 单 sheet 且 `sheet_state == 'visible'`；sheet 名正确。
-   - 列宽：`A=3.25 / AF=4.5 / AG=3.25`、`defaultColWidth≈0.8cm（4.3 字符）`，无其他显式列宽。
-   - 前 6 行合并区与模板逐一相等（17 个）；值仅允许 A1 标题与 `#REF!` 清理两处差异。
-   - 内容从第 7 行起完整：章节标题计数、关键表格数据抽查；合并区无重叠。
-   - 行高：按内容估算，长代码块（如 JSON 示例）行高 = 行数×13+8，正文 = 行数×14+8，不截断。
-   - mermaid 图已嵌入：`ws._images` 非空、锚点行高撑开（≤ 约 520px 高，不溢出覆盖其他内容）；若期望有图而 `_images` 为空，检查 `mmdc` 是否可用。
-   - 用 artifact-preview 渲染文本核对全部章节与关键术语。
-5. **交付**：`present_files` 交付 xlsx 本地路径。
+   - mermaid 渲染失败时该块降级为代码文本，并在 stderr 输出 `warning`（含 mmdc 首条错误）。
+   - `--blocks` 会校验 block 类型与结构，非法输入直接报错并指出位置。
+4. **验证**（交付前必做）：
+   ```bash
+   python <skill>/scripts/verify_design_excel.py --output <目标.xlsx> [--sheet-name <期望sheet名>]
+   ```
+   退出码 0 = 通过。脚本检查：
+   - 单 sheet 且 `visible`；列宽与模板完全一致（`A=3.25 / AF=4.5 / AG=3.25`，其余默认 0.8cm）。
+   - 前 6 行合并区（17 个）、值（仅 A1 标题与 `#REF!` 清理两处差异）、行高与模板一致。
+   - 第 7 行起无残留的模板行高；合并区互不重叠。
+   - 报告 mermaid 图片数量。期望有图而数量为 0 时，检查 `mmdc` 可用性以及 stderr 中的告警。
+   脚本不校验内容完整性，章节数、关键表格数据需人工抽查。
+   - 行高估算（脚本内置）：长代码块 = 行数×13+8，正文 = 行数×14+8，表格数据行 = 行数×14+6。
+5. **交付**：报告输出的 xlsx 本地路径。
 
 ## 资源
 
 - `assets/design_template.xlsx` — 版式基准模板（用户微调确认版），**模板唯一权威**，脚本默认从本 Skill assets 加载；勿修改、勿另存副本。
 - `scripts/md_to_design_excel.py` — 转换脚本（解析 MD / 渲染 blocks JSON），已用真实设计书 MD 与日文 blocks 双路径测试通过。
+- `scripts/verify_design_excel.py` — 版式校验（回读 xlsx 对照模板，见工作流第 4 步）。

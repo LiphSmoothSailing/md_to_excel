@@ -177,15 +177,14 @@ check("引用标记未被剥掉", any(isinstance(v, str) and v.startswith("> ") 
 check("代码围栏行本身原样保留", colA.count("```sql") == 1 and colA.count("```") == 2)
 check("主题分隔线 --- 原样保留", "---" in colA)
 
-# 新增：标题行加粗、**段红色
+# 标题行不做样式（与 frontmatter 一致）
 heading_row = next(r for r in range(1, ws.max_row + 1)
                    if isinstance(ws.cell(row=r, column=1).value, str)
                    and ws.cell(row=r, column=1).value.startswith("# "))
-check("标题行(#)整行加粗", ws.cell(row=heading_row, column=1).font.bold is True)
-bold_line_row = next(r for r in range(1, ws.max_row + 1)
-                     if M.rich_text_to_str(ws.cell(row=r, column=1).value) == "段落文字，含 **粗体** 與 `行內代碼`。")
-bold_val = ws.cell(row=bold_line_row, column=1).value
-check("含**的行用CellRichText渲染", hasattr(bold_val, "__iter__") and not isinstance(bold_val, str))
+check("标题行不加粗、字号与正文相同（不做标题样式）",
+      ws.cell(row=heading_row, column=1).font.bold is not True
+      and ws.cell(row=heading_row, column=1).font.sz == 11)
+check("非表格行字体 = --font 指定字体", ws.cell(row=heading_row, column=1).font.name == "宋体")
 
 
 t1_row = next(r for r in range(1, ws.max_row + 1) if ws.cell(row=r, column=1).value == "欄位")
@@ -213,7 +212,38 @@ names = list(ws2.tables)
 check("--excel-table：3 张有数据的表都注册了 ListObject（只有表头的跳过）", len(names) == 3, names)
 check("ListObject 名称连续且唯一", names == ["Tbl1", "Tbl2", "Tbl3"], names)
 
-# ---------------------------------------------------------------- 4) 真实文件冒烟
+# ---------------------------------------------------------------- 4a) 回归：表格单元格 <br> → 单元格内换行
+br_src = ["| 列 | 說明 |", "|---|---|", "| `a.b`<br>`a.c` | x<BR/>y<br />z |"]
+br_ws = M.build(M.parse(br_src), "宋体", 11, "keep", False, 5, 60, "br")
+check("<br> 转为单元格内换行", br_ws.cell(row=2, column=1).value == "`a.b`\n`a.c`",
+      repr(br_ws.cell(row=2, column=1).value))
+check("大小写 / 自闭合 <br> 都转换", br_ws.cell(row=2, column=2).value == "x\ny\nz",
+      repr(br_ws.cell(row=2, column=2).value))
+check("带换行的单元格开启自动换行", br_ws.cell(row=2, column=1).alignment.wrap_text is True)
+check("非表格行里的 <br> 原样保留", M.render_text_line("a<br>b", "宋体", 11) == "a<br>b")
+
+# ---------------------------------------------------------------- 4) 回归：公式注入 / verify 空行模式
+from openpyxl import load_workbook  # noqa: E402
+
+fx_src = ["=1+1", "", "| a | b |", "|---|---|", "| =2+2 | x |"]
+fx_path = TEMP / "_formula_test.xlsx"
+M.build(M.parse(fx_src), "宋体", 11, "keep", False, 5, 60, "fx").parent.save(fx_path)
+fx_ws = load_workbook(fx_path).active
+check("以 = 开头的非表格行保存为文本，不变成公式",
+      fx_ws.cell(row=1, column=1).value == "=1+1" and fx_ws.cell(row=1, column=1).data_type == "s",
+      repr(fx_ws.cell(row=1, column=1).value))
+check("以 = 开头的表格单元格保存为文本，不变成公式",
+      fx_ws.cell(row=4, column=1).value == "=2+2" and fx_ws.cell(row=4, column=1).data_type == "s",
+      repr(fx_ws.cell(row=4, column=1).value))
+
+blank_src = ["a", "", "", "b"]
+for mode in ("keep", "collapse", "drop"):
+    bl_path = TEMP / f"_blank_{mode}.xlsx"
+    M.build(M.parse(blank_src), "宋体", 11, mode, False, 5, 60, "bm").parent.save(bl_path)
+    ok_bm, detail_bm = M.verify(bl_path, blank_src, False, mode)
+    check(f"verify：--blank-lines {mode} 通过", ok_bm, detail_bm)
+
+# ---------------------------------------------------------------- 5) 真实文件冒烟
 real = None
 if len(sys.argv) > 1:
     real = Path(sys.argv[1])
@@ -241,7 +271,7 @@ if real and real.is_file():
         cells = M.split_row(ln)
         if all(_re.fullmatch(r":?-+:?", c or "") for c in cells):
             continue                     # `|:---|---:|` 分隔行
-        src_cells_raw.append(cells)
+        src_cells_raw.append([_re.sub(r"<br\s*/?>", "\n", c, flags=_re.IGNORECASE) for c in cells])
     xls_cells = [[rws.cell(row=r, column=c).value for c in range(1, rws.max_column + 1)]
                  for r in range(1, rws.max_row + 1)
                  if rws.cell(row=r, column=1).border.left.style == "thin"]

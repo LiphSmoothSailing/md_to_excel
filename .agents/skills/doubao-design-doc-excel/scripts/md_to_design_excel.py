@@ -11,7 +11,9 @@ blocks JSON 结构（列表）：
   ["table", ["列1","列2"], [["a","b"], ...]]   表格（1~3 列；>3 列自动并入第 3 列）
   ["note", "文本"]                             正文段落（可含 \\n 多行）
   ["code", "文本"]                             代码/JSON 示例（浅灰底 Consolas）
-  ["mermaid", "mermaid代码"]                   流程图（渲染 PNG 嵌入；失败降级为代码文本）
+  ["mermaid", "mermaid代码"]                   流程图（渲染 PNG 嵌入；失败降级为代码文本并输出告警）
+
+表格单元格中：`<br>`（大小写不敏感，可写 `<br/>`）转为单元格内换行；`\\|` 还原为 `|`。
 
 模板版式铁律（不可违反）：
   - 保留模板前 6 行（值/样式/合并/行高）
@@ -59,6 +61,19 @@ FULL = (2, 55)
 DEFAULT_SHEET = '設計書'
 DEFAULT_W = 4.32  # 模板默认列宽（0.8cm ≈ 4.3 字符）
 
+# 行高估算（经验值，与既有版式保持一致）
+EST_AVAIL_DIV = 2          # 列宽字符数 → 可容纳显示宽度的折算除数
+NOTE_LINE_PT, NOTE_PAD = 14, 8
+CODE_LINE_PT, CODE_PAD = 13, 8
+TABLE_LINE_PT, TABLE_PAD = 14, 6
+
+MERMAID_WIDTH = 600
+MERMAID_MAX_H = 520        # Excel 行高上限约 409.5pt ≈ 546px，保守取 520
+MMDC_TIMEOUT = 60          # 秒；浏览器卡死时避免无限等待
+
+BLOCK_KINDS = ('chapter', 'section', 'table', 'note', 'code', 'mermaid')
+BR_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
+
 
 def disp_width(s):
     return sum(2 if unicodedata.east_asian_width(ch) in ('F', 'W') else 1
@@ -81,7 +96,7 @@ def est_lines(text, c1, c2, ws=None):
     if not text:
         return 1
     wsum = seg_width(ws, c1, c2) if ws is not None else DEFAULT_W * (c2 - c1 + 1)
-    avail = max(wsum / 2 - 2, 8)
+    avail = max(wsum / EST_AVAIL_DIV - 2, 8)
     return sum(max(1, math.ceil(disp_width(ln) / avail)) for ln in text.split('\n'))
 
 
@@ -128,12 +143,26 @@ def col_align(values):
 
 # ---------------- MD 解析 ----------------
 def _split_row(r):
+    """按未转义的 | 切分单元格；\\| 还原成 |"""
     r = r.strip()
     if r.startswith('|'):
         r = r[1:]
-    if r.endswith('|'):
+    if r.endswith('|') and not r.endswith('\\|'):
         r = r[:-1]
-    return [c.strip() for c in r.split('|')]
+    cells, cur, i = [], [], 0
+    while i < len(r):
+        if r[i] == '\\' and i + 1 < len(r) and r[i + 1] == '|':
+            cur.append('|')
+            i += 2
+            continue
+        if r[i] == '|':
+            cells.append(''.join(cur).strip())
+            cur = []
+        else:
+            cur.append(r[i])
+        i += 1
+    cells.append(''.join(cur).strip())
+    return cells
 
 
 def _is_sep_row(r):
@@ -145,6 +174,16 @@ def _clean_inline(text):
     return re.sub(r'`([^`]*)`', r'\1', str(text))
 
 
+def _unescape_cell(text):
+    """表格单元格文本：<br> 转为单元格内换行，\\| 还原为 |"""
+    return BR_RE.sub('\n', str(text)).replace('\\|', '|')
+
+
+def _cell_text(text):
+    """md 表格单元格文本：去反引号标记，再做 <br> / \\| 处理"""
+    return _unescape_cell(_clean_inline(text))
+
+
 def _png_size(path):
     """读取 PNG 像素尺寸（读 IHDR，不依赖 Pillow）"""
     with open(path, 'rb') as f:
@@ -153,20 +192,28 @@ def _png_size(path):
     return w, h
 
 
-def _render_mermaid(code, out_png, width=600):
-    """用 mermaid-cli 渲染 mermaid 代码为 PNG；失败返回 False（调用方降级为代码文本）"""
+def _render_mermaid(code, out_png, width=MERMAID_WIDTH):
+    """用 mermaid-cli 渲染 mermaid 代码为 PNG。
+
+    返回 (ok, message)：失败时 message 为 mmdc 输出的首条错误信息，供调用方告警。
+    """
     if not MMDC:
-        return False
+        return False, 'mmdc 未找到（需要 @mermaid-js/mermaid-cli）'
     mmd = out_png + '.mmd'
     with open(mmd, 'w', encoding='utf-8') as f:
         f.write(code)
     try:
-        cmd = f'"{MMDC}" -i "{mmd}" -o "{out_png}" -b white -w {width}'
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        return r.returncode == 0 and os.path.exists(out_png)
+        r = subprocess.run([MMDC, '-i', mmd, '-o', out_png, '-b', 'white', '-w', str(width)],
+                           capture_output=True, text=True, timeout=MMDC_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
     finally:
         if os.path.exists(mmd):
             os.remove(mmd)
+    if r.returncode != 0 or not os.path.exists(out_png):
+        lines = [ln.strip() for ln in (r.stderr + '\n' + r.stdout).splitlines() if ln.strip()]
+        return False, lines[0] if lines else f'mmdc 退出码 {r.returncode}'
+    return True, ''
 
 
 def parse_md(text):
@@ -226,12 +273,12 @@ def parse_md(text):
 
 
 def parse_table(rows):
-    headers = [_clean_inline(h) for h in _split_row(rows[0])]
+    headers = [_cell_text(h) for h in _split_row(rows[0])]
     data = []
     for r in rows[1:]:
         if _is_sep_row(r):
             continue
-        data.append([_clean_inline(c) for c in _split_row(r)])
+        data.append([_cell_text(c) for c in _split_row(r)])
     maxc = max([len(headers)] + [len(r) for r in data])
     headers = headers + [''] * (maxc - len(headers))
     data = [r + [''] * (maxc - len(r)) for r in data]
@@ -257,12 +304,15 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
     wb = load_workbook(template_path)
     ws = wb.active
     if sheet_name is None:
-        sheet_name = _make_sheet_name(doc_title)
+        sheet_name = _make_sheet_name(doc_title or ws['A1'].value)
     ws.title = sheet_name
 
     # 清理模板内容区（第 7 行起），保留前 6 行与列宽
     if ws.max_row > 6:
         ws.delete_rows(7, ws.max_row - 6)
+    # delete_rows 不清理行高：去掉模板遗留的第 7 行之后的行高，否则空行会被撑高
+    for r in [r for r in ws.row_dimensions if r > 6]:
+        del ws.row_dimensions[r]
     ws.merged_cells.ranges = [mr for mr in ws.merged_cells.ranges if mr.max_row <= 6]
     for row in ws.iter_rows(min_row=1, max_row=6):
         for cell in row:
@@ -313,30 +363,31 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
                        Font(name=FONT_JA, size=10, color='FF000000'),
                        Alignment(horizontal='left', vertical='center', wrap_text=True),
                        bordered=False)
-            ws.row_dimensions[row].height = max(18, est_lines(block[1], *FULL, ws) * 14 + 8)
+            ws.row_dimensions[row].height = max(18, est_lines(block[1], *FULL, ws) * NOTE_LINE_PT + NOTE_PAD)
         elif kind == 'code':
             set_merged(row, FULL[0], FULL[1], block[1], code_fill,
                        Font(name=FONT_MONO, size=10, color='FF333333'),
                        Alignment(horizontal='left', vertical='center', wrap_text=True),
                        bordered=False)
-            ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * 13 + 8
+            ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * CODE_LINE_PT + CODE_PAD
         elif kind == 'mermaid':
             png = os.path.join(img_dir, f'mermaid_{row}.png')
-            if _render_mermaid(block[1], png):
+            ok, msg = _render_mermaid(block[1], png)
+            if ok:
                 w, h = _png_size(png)
-                max_h = 520  # Excel 行高上限约 409.5pt ≈ 546px，保守取 520
-                scale = min(1.0, max_h / h)
+                scale = min(1.0, MERMAID_MAX_H / h)
                 img = XLImage(png)
                 img.width = int(w * scale)
                 img.height = int(h * scale)
                 ws.add_image(img, f'B{row}')
                 ws.row_dimensions[row].height = img.height * 0.75 + 4
-            else:  # mmdc 不可用或渲染失败 → 降级为代码文本
+            else:  # mmdc 不可用或渲染失败 → 降级为代码文本，并告警
+                print(f'warning: 第 {row} 行 mermaid 渲染失败，已降级为代码文本: {msg}', file=sys.stderr)
                 set_merged(row, FULL[0], FULL[1], block[1], code_fill,
                            Font(name=FONT_MONO, size=10, color='FF333333'),
                            Alignment(horizontal='left', vertical='center', wrap_text=True),
                            bordered=False)
-                ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * 13 + 8
+                ws.row_dimensions[row].height = est_lines(block[1], *FULL, ws) * CODE_LINE_PT + CODE_PAD
         elif kind == 'table':
             headers, rows = normalize_table(block[1], block[2])
             n = len(headers)
@@ -359,8 +410,10 @@ def build(template_path, out_path, blocks, doc_title=None, sheet_name=None):
                                bordered=True)
                     ws.row_dimensions[row].height = max(
                         ws.row_dimensions[row].height or 0,
-                        est_lines(v, c1, c2, ws) * 14 + 6)
+                        est_lines(v, c1, c2, ws) * TABLE_LINE_PT + TABLE_PAD)
                 row += 1
+        else:
+            raise ValueError(f'未知的 block 类型: {kind!r}')
         row += 1  # 块间空行
 
     wb.save(out_path)
@@ -396,11 +449,18 @@ def default_temp_dir():
 def load_blocks_json(path):
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     out = []
-    for item in data:
-        kind = item[0]
+    for i, item in enumerate(data):
+        kind = item[0] if item else None
+        if kind not in BLOCK_KINDS:
+            raise ValueError(f'blocks[{i}]: 未知的 block 类型 {kind!r}（允许: {", ".join(BLOCK_KINDS)}）')
         if kind == 'table':
-            out.append((kind, list(item[1]), [list(r) for r in item[2]]))
+            if len(item) != 3 or not isinstance(item[1], list) or not isinstance(item[2], list):
+                raise ValueError(f'blocks[{i}]: table 需要 ["table", [表头...], [[行...], ...]]')
+            out.append((kind, [_unescape_cell(h) for h in item[1]],
+                        [[_unescape_cell(c) for c in r] for r in item[2]]))
         else:
+            if len(item) != 2 or not isinstance(item[1], str):
+                raise ValueError(f'blocks[{i}]: {kind} 需要 ["{kind}", "文本"]')
             out.append((kind, item[1]))
     return out
 
